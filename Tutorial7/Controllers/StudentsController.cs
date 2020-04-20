@@ -16,7 +16,7 @@ using Tutorial7.Services;
 namespace Tutorial7.Controllers
 {
     [ApiController]
-    [Authorize]
+
     [Route("api/students")]
     public class StudentsController : ControllerBase
     {
@@ -28,7 +28,7 @@ namespace Tutorial7.Controllers
             _configuration = configuration;
         }
 
-   
+
         [HttpGet]
         public IActionResult GetStudents(string orderBy)
         {
@@ -109,7 +109,7 @@ namespace Tutorial7.Controllers
                 var dr = command.ExecuteReader();
                 if (!dr.Read())
                 {
-                    return StatusCode(401,"Login or password is not correct");
+                    return StatusCode(401, "Login or password is not correct");
                 }
             }
 
@@ -137,7 +137,52 @@ namespace Tutorial7.Controllers
             {
                 accessToken = new JwtSecurityTokenHandler().WriteToken(token),
                 refreshToken = Guid.NewGuid()
-            }); ;
+            });
+        }
+
+        [HttpPost("refresh-token/{rToken}")]
+        public IActionResult RefreshToken(string rToken)
+        {
+            //check refresh tocken in db
+            using (var sqlConnection = new SqlConnection(_connString))
+            using (var command = new SqlCommand())
+            {
+                sqlConnection.Open();
+                command.Connection = sqlConnection;
+                command.CommandText = "SELECT RefreshToken FROM Student WHERE RefreshToken like @rtoken";
+                command.Parameters.AddWithValue("rtoken", rToken);
+                var dr = command.ExecuteReader();
+                if (!dr.Read())
+                {
+                    return StatusCode(401, "Such token does not exists in a database");
+                }
+
+                var claims = new[]
+        {
+                new Claim(ClaimTypes.NameIdentifier, "1"),
+                new Claim(ClaimTypes.Name, "Bob"),
+                new Claim(ClaimTypes.Role,  "Employee"),
+                new Claim(ClaimTypes.Role,  "Student"),
+            };
+
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["SecretKey"]));
+                var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+                var token = new JwtSecurityToken
+                (
+                    issuer: "Artem",
+                    audience: "Students",
+                    claims: claims,
+                    expires: DateTime.Now.AddMinutes(10),
+                    signingCredentials: creds
+                );
+
+                return Ok(new
+                {
+                    accessToken = new JwtSecurityTokenHandler().WriteToken(token),
+                    refreshToken = Guid.NewGuid()
+                });
+            }
         }
     }
 }
