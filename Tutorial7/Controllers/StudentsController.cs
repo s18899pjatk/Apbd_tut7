@@ -16,7 +16,7 @@ using Tutorial7.Services;
 namespace Tutorial7.Controllers
 {
     [ApiController]
-
+    [Authorize]
     [Route("api/students")]
     public class StudentsController : ControllerBase
     {
@@ -96,20 +96,25 @@ namespace Tutorial7.Controllers
         [HttpPost("login")]
         public IActionResult Login(LoginRequestDto requestDto)
         {
-
+       
             // check credentials in db
             using (var sqlConnection = new SqlConnection(_connString))
             using (var command = new SqlCommand())
             {
                 sqlConnection.Open();
                 command.Connection = sqlConnection;
-                command.CommandText = "SELECT IndexNumber FROM Student WHERE IndexNumber = @index AND Password = @password";
+                command.CommandText = "SELECT IndexNumber, Password, pSalt FROM Student WHERE IndexNumber = @index AND Password = @password";
                 command.Parameters.AddWithValue("index", requestDto.Login);
                 command.Parameters.AddWithValue("password", requestDto.Password);
                 var dr = command.ExecuteReader();
                 if (!dr.Read())
                 {
                     return StatusCode(401, "Login or password is not correct");
+                }
+                var hashPassword = new PasswordHashing((string)dr["Password"], (string)dr["pSalt"]);
+                if (!hashPassword.CheckHash())
+                {
+                    return StatusCode(401, "Incorrect user hash");
                 }
             }
 
@@ -139,6 +144,7 @@ namespace Tutorial7.Controllers
                 refreshToken = Guid.NewGuid()
             });
         }
+
 
         [HttpPost("refresh-token/{rToken}")]
         public IActionResult RefreshToken(string rToken)
