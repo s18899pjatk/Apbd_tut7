@@ -10,25 +10,8 @@ namespace Tutorial7
 {
     public class PasswordHashing
     {
-        private string _password;
-        private string _salt;
-        public PasswordHashing(string password, string salt)
-        {
-            _password = password;
-            _salt = salt;
-        }
-        public bool CheckHash()
-        {
-            
-            var str = Create(_password, _salt);
-            if (!Validate(_password, _salt, str))
-            {
-                return false;
-            }
-            return true;
-        }
-
-        private static string Create(string value, string salt)
+       
+        public static string Create(string value, string salt)
         {
             var valueBytes = KeyDerivation.Pbkdf2(
                                                password: value,
@@ -42,7 +25,7 @@ namespace Tutorial7
         public static bool Validate(string value, string salt, string hash)
             => Create(value, salt) == hash;
 
-       /* private static string GenerateSalt()
+        public static string GenerateSalt()
         {
             byte[] randomBytes = new byte[128 / 8];
             using (var generator = RandomNumberGenerator.Create())
@@ -50,6 +33,6 @@ namespace Tutorial7
                 generator.GetBytes(randomBytes);
                 return Convert.ToBase64String(randomBytes);
             }
-        }*/
+        }
     }
 }

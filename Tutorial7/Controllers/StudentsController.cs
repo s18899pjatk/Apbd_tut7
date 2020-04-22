@@ -16,7 +16,6 @@ using Tutorial7.Services;
 namespace Tutorial7.Controllers
 {
     [ApiController]
-    [Authorize]
     [Route("api/students")]
     public class StudentsController : ControllerBase
     {
@@ -28,7 +27,7 @@ namespace Tutorial7.Controllers
             _configuration = configuration;
         }
 
-
+        [Authorize]
         [HttpGet]
         public IActionResult GetStudents(string orderBy)
         {
@@ -92,84 +91,44 @@ namespace Tutorial7.Controllers
         }
 
         /*------------------------------------------------------------------ASSIGNMENT 7-------------------------------------------------------------------*/
-
+        [Authorize]
         [HttpPost("login")]
         public IActionResult Login(LoginRequestDto requestDto)
         {
-       
+
             // check credentials in db
             using (var sqlConnection = new SqlConnection(_connString))
             using (var command = new SqlCommand())
             {
                 sqlConnection.Open();
                 command.Connection = sqlConnection;
-                command.CommandText = "SELECT IndexNumber, Password, pSalt FROM Student WHERE IndexNumber = @index AND Password = @password";
+                command.CommandText = "SELECT IndexNumber, Password, pSalt FROM Student WHERE IndexNumber = @index";
                 command.Parameters.AddWithValue("index", requestDto.Login);
                 command.Parameters.AddWithValue("password", requestDto.Password);
                 var dr = command.ExecuteReader();
                 if (!dr.Read())
                 {
-                    return StatusCode(401, "Login or password is not correct");
+                    return StatusCode(401, "Login is not correct");
                 }
-                var hashPassword = new PasswordHashing((string)dr["Password"], (string)dr["pSalt"]);
-                if (!hashPassword.CheckHash())
+                var indexNum = dr["IndexNumber"].ToString();
+                var lastName = dr["LastName"].ToString();
+                var password = dr["Password"].ToString();
+                var salt = dr["pSalt"].ToString();
+                dr.Close();
+
+                bool verify = PasswordHashing.Validate(requestDto.Password, salt, password);
+                if (!verify)
                 {
-                    return StatusCode(401, "Incorrect user hash");
-                }
-            }
-
-            var claims = new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, "1"),
-                new Claim(ClaimTypes.Name, "Bob"),
-                new Claim(ClaimTypes.Role,  "Employee"),
-                new Claim(ClaimTypes.Role,  "Student"),
-            };
-
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["SecretKey"]));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-            var token = new JwtSecurityToken
-            (
-                issuer: "Artem",
-                audience: "Students",
-                claims: claims,
-                expires: DateTime.Now.AddMinutes(10),
-                signingCredentials: creds
-            );
-
-            return Ok(new
-            {
-                accessToken = new JwtSecurityTokenHandler().WriteToken(token),
-                refreshToken = Guid.NewGuid()
-            });
-        }
-
-
-        [HttpPost("refresh-token/{rToken}")]
-        public IActionResult RefreshToken(string rToken)
-        {
-            //check refresh tocken in db
-            using (var sqlConnection = new SqlConnection(_connString))
-            using (var command = new SqlCommand())
-            {
-                sqlConnection.Open();
-                command.Connection = sqlConnection;
-                command.CommandText = "SELECT RefreshToken FROM Student WHERE RefreshToken like @rtoken";
-                command.Parameters.AddWithValue("rtoken", rToken);
-                var dr = command.ExecuteReader();
-                if (!dr.Read())
-                {
-                    return StatusCode(401, "Such token does not exists in a database");
+                    return StatusCode(401, "Password is not correct");
                 }
 
                 var claims = new[]
-        {
-                new Claim(ClaimTypes.NameIdentifier, "1"),
-                new Claim(ClaimTypes.Name, "Bob"),
+                {
+                new Claim(ClaimTypes.NameIdentifier, indexNum),
+                new Claim(ClaimTypes.Name, lastName),
                 new Claim(ClaimTypes.Role,  "Employee"),
                 new Claim(ClaimTypes.Role,  "Student"),
-            };
+                };
 
                 var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["SecretKey"]));
                 var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -183,10 +142,72 @@ namespace Tutorial7.Controllers
                     signingCredentials: creds
                 );
 
+                var accessToken = new JwtSecurityTokenHandler().WriteToken(token);
+                var refreshToken = Guid.NewGuid();
+                command.CommandText = "UPDATE student SET RefreshToken = @rToken WHERE IndexNumber = @id";
+                command.Parameters.AddWithValue("rToken", refreshToken);
+                command.Parameters.AddWithValue("id", indexNum);
+                var q = command.ExecuteNonQuery();
+
                 return Ok(new
                 {
-                    accessToken = new JwtSecurityTokenHandler().WriteToken(token),
-                    refreshToken = Guid.NewGuid()
+                    accessToken,
+                    refreshToken
+                });
+            }
+        }
+
+        [Authorize(Roles = "Employee")]
+        [HttpPost("refresh-token/{rToken}")]
+        public IActionResult RefreshToken(string rToken)
+        {
+
+            using (var sqlConnection = new SqlConnection(_connString))
+            using (var command = new SqlCommand())
+            {
+                sqlConnection.Open();
+                command.Connection = sqlConnection;
+                command.CommandText = "SELECT IndexNumber,LastName, RefreshToken FROM Student WHERE RefreshToken like @reftoken";
+                command.Parameters.AddWithValue("reftoken", rToken);
+                var dr = command.ExecuteReader();
+                if (!dr.Read())
+                {
+                    return StatusCode(401, "Such token does not exists in a database");
+                }
+                var indexNum = dr["IndexNumber"].ToString();
+                var lastName = dr["LastName"].ToString();
+                dr.Close();
+
+                var claims = new[]
+                 {
+                    new Claim(ClaimTypes.NameIdentifier, indexNum),
+                    new Claim(ClaimTypes.Name, lastName),
+                    new Claim(ClaimTypes.Role,  "Employee"),
+                    new Claim(ClaimTypes.Role,  "Student"),
+                };
+
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["SecretKey"]));
+                var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+                var token = new JwtSecurityToken
+                (
+                    issuer: "Artem",
+                    audience: "Students",
+                    claims: claims,
+                    expires: DateTime.Now.AddMinutes(10),
+                    signingCredentials: creds
+                );
+
+                var accessToken = new JwtSecurityTokenHandler().WriteToken(token);
+                var refreshToken = Guid.NewGuid();
+                command.CommandText = "UPDATE student SET RefreshToken = @rToken WHERE IndexNumber = @id";
+                command.Parameters.AddWithValue("rToken", refreshToken);
+                command.Parameters.AddWithValue("id", indexNum);
+                var q = command.ExecuteNonQuery();
+
+                return Ok(new
+                {
+                    accessToken,
+                    refreshToken
                 });
             }
         }
